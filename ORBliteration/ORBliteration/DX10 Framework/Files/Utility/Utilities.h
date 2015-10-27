@@ -19,6 +19,7 @@
 
 // Library Includes
 #include <sstream>
+#include <iostream>
 
 // Defines
 #define ReleasePtr(x) { if(x){ delete x; x = 0;} }
@@ -46,6 +47,7 @@
 #include <windowsx.h>
 #include <string>
 #include <vector>
+#include <time.h>
 
 // Local Includes
 #include "Utility_Math.h"
@@ -77,6 +79,36 @@ namespace color
 	const DWORD DARKBLUE(RGB(0, 0, 139));
 	const DWORD GREY(RGB(50, 50, 50));
 	const DWORD PINK(RGB(199, 21, 133));
+}
+
+namespace shape
+{
+	struct Rectangle
+	{
+		/*******************
+		->  Default constructor
+		@author:	Juran Griffith.
+		@parameter:	None.
+		@return:
+		********************/
+		Rectangle(){}
+
+		/*******************
+		->  Constructor that allows the position and colour to be set for the vertex.
+		@author:	Juran Griffith.
+		@parameter:	_position	- The position of the vertex.
+		@parameter:	_colour		- The colour of the vertex.
+		@return:
+		********************/
+		Rectangle(float _x, float _y, float _w, float _h) :
+			m_x(_x),
+			m_y(_y),
+			m_w(_w),
+			m_h(_h)
+		{
+		}
+		float m_x, m_y, m_w, m_h;
+	};
 }
 
 #endif // __UTILITIES_H__

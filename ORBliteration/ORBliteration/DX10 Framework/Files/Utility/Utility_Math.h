@@ -345,6 +345,17 @@ struct v3float
 	}
 
 	/***********************
+	* operator*=: Multiplication Assignment Operator for a v3float times a v3float
+	* @author: Jc Fowles
+	* @parameter: _v3: Right hand side of the multiplication
+	* @return: v3float: The result of the multiplication
+	********************/
+	v3float operator*= (const v3float _v3) 
+	{
+		return v3float{ x *= _v3.x, y *= _v3.y, z *= _v3.z };
+	}
+
+	/***********************
 	* operator*: Multiplication Operator for a v3float times a float
 	* @author: Callan Moore
 	* @parameter: _v3: Right hand side of the multiplication
@@ -410,6 +421,21 @@ struct v3float
 			(*this) = (this->Normalise()) * _f;
 		}
 		return (*this);
+	}
+
+	// TO DO CAL
+	bool ApproxEqual(const v3float _v3, const float _apx)
+	{
+		if ((abs(_v3.x - x) <= _apx)
+			&& (abs(_v3.y - y) <= _apx)
+			&& (abs(_v3.z - z) <= _apx))
+		{
+			return true;
+		}
+		else
+		{
+			return false;
+		}
 	}
 };
 

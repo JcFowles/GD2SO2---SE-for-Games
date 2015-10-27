@@ -32,12 +32,26 @@
 #endif // _DEBUG
 
 // Local Includes
-
 #include "Utility\Utilities.h"
 #include "Utility\Timer.h"
 #include "DX10\DX10.h"
+#include "DX10\DX10\2D Objects\GUI_Button.h"
 #include "Input\InputGamePad.h"
+#include "Menus\Menu.h"
+#include "Gameplay\Gameplay.h"
+#include "Sound\SoundManager.h"
 
+enum APP_STATE
+{
+	APP_STATE_SPLASH,
+	APP_STATE_TITLE,
+	APP_STATE_MAIN_MENU,
+	APP_STATE_MATCH_MENU,
+	APP_STATE_OPTION_MENU,
+	APP_STATE_INSTRUCTIONS_MENU,
+	APP_STATE_PAUSE_MENU,
+	APP_STATE_GAME
+};
 
 class Application
 {
@@ -165,7 +179,7 @@ public:
 	* SetMouseDown: Set the state of the mouse button being clicked
 	* @author: Callan Moore
 	* @parameter: _mouseDown: The new state of the mouse button
-	* @return: void
+	* @return: void.
 	********************/
 	void SetMouseDown(bool _mouseDown) { m_mouseDown = _mouseDown; };
 
@@ -174,6 +188,37 @@ private:
 	Application() {}
 	Application(const Application& _kr);
 	Application& operator= (const Application& _kr);
+
+	/*******************
+	* ExitApp: Exits the application.
+	* @author:	Juran Griffith.
+	* @return:	void.
+	********************/
+	void ExitApp();
+
+	/*******************
+	* UpdateState: Updates the application based on the menu item selected
+	* @author:	Juran Griffith.
+	* @return:	bool: Successful or not
+	********************/
+	bool UpdateState(MENU_STATE _state);
+
+	// TO DO CAL
+	void UpdateClientSize();
+
+	/*******************
+	* ResetsControllerUI: Resets the controller ui to the correct position.
+	* @author:	Juran Griffith.
+	* @return:	void
+	********************/
+	void ResetControllerUI();
+
+	/*******************
+	* GetNumberOfConnectedControllers: Gets the number of connected controllers
+	* @author:	Juran Griffith.
+	* @return:	short: The number of connected controllers.
+	********************/
+	short GetNumberOfConnectedControllers();
 
 private:
 	// Singleton Instance
@@ -199,26 +244,37 @@ private:
 	DX10_Renderer* m_pDX10_Renderer;
 
 	// Camera
-	DX10_Camera_FirstPerson* m_pCamera;
+	DX10_Camera_Debug* m_pCamera;
 
-	// Objects
-	DX10_Obj_LitTex* m_pTerrain;
-	// TO DO JC: create a vector or array of these
-	DX10_Obj_LitTex* m_pAvatarOne;
-	DX10_Obj_LitTex* m_pAvatarTwo;
+	// Game Pad Input
+	XButtonIDs m_XButtons;	
+	XStickDirectionIDs m_XStickDirections;
+	std::vector<InputGamePad*> m_pContollers;
 
-	// Meshes
-	DX10_Mesh_Generic* m_pTerrainMesh;
-	DX10_Mesh_Generic* m_pAvatarMesh;
-	
-	// Shaders
-	DX10_Shader_LitTex* m_pShader_LitTex;
+	// Game play Objects
+	Game* m_pGame;
 
-	// TO DO JC: Test
-	// TO DO JC: create a vector or array of these
-	InputGamePad* m_gamePadOne;
-	InputGamePad* m_gamePadTwo;
-	XButtonIDs m_XButtons;
+	// App State
+	APP_STATE m_state;
+	bool m_isFullscreen;
+	bool m_isSoundOn;
+	bool m_isRumbleOn;
+
+	// Sound
+	SoundManager* m_pSoundManager;
+
+	// 2D Objects
+	DX10_Shader_Sprite*	m_pShader_Sprite;
+	std::vector<Menu*> m_menus;
+	DXSprite m_splash_ps;
+	DXSprite m_splash_orb;
+	float m_animationTime;
+	float m_animationSpeed;
+	float m_waitTime;
+	bool m_wait;
+
+	DXSprite m_uiInstructions;
+	DXSprite m_uiControllerMissing;
 };
 
 #endif // __APPLICATION_H__

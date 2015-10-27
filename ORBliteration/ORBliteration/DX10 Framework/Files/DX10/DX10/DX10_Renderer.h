@@ -21,12 +21,20 @@
 #include <map>
 #include <typeinfo> 
 #include <time.h>
+#include <fstream>
 
 // Local Includes
 #include "DX10_Utilities.h"
 #include "../../Utility/Utilities.h"
 #include "DX10_Vertex.h"
 #include "Systems/DX10_Buffer.h"
+
+struct PolygonType
+{
+	int vIndex1, vIndex2, vIndex3;
+	int tIndex1, tIndex2, tIndex3;
+	int nIndex1, nIndex2, nIndex3;
+};
 
 class DX10_Renderer
 {
@@ -96,37 +104,44 @@ public:
 	********************/
 	void ToggleFillMode();
 
+	/*******************
+	* TurnZBufferOn: Turns the z buffer on to render 3D objects properly
+	* @author:	Juran Griffith.
+	* @parameter:	None.
+	* @return:	void.
+	********************/
+	void TurnZBufferOn();
+
+	/*******************
+	* TurnZBufferOff: Turns the z buffer off to render 2D objects properly
+	* @author:	Juran Griffith.
+	* @parameter:	None.
+	* @return:	void.
+	********************/
+	void TurnZBufferOff();
+
 	/***********************
 	* BuildFX: Build a FX file and Technique and store on the Renderer
 	* @author: Callan Moore
 	* @Parameter: _fxFileName: Name of the Effects file to retrieve
 	* @Parameter: _technique: Name of the Technique to Retrieve from the FX file
-	* @Parameter: _fxID: Storage value to hold the created or found ID of the FX file
-	* @Parameter: _techID: Storage value to hold the created or found ID of the Technique
+	* @Parameter: _prFX: Storage value to hold the created or found Pointer to the FX file
+	* @Parameter: _prTech: Storage value to hold the created or found Pointer to the Technique
 	* @return: bool: Successful or not
 	********************/
-	bool BuildFX(std::string _fxFileName, std::string _technique, UINT* _pFXID, UINT* _pTechID);
-
-	/***********************
-	* GetFXVariable: Retrieve a FX Variable
-	* @author: Callan Moore
-	* @Parameter: _fxID: ID of the FX file to access
-	* @Parameter: _techVar: Name of the variable to retrieve
-	* @return: ID3D10EffectVariable*: The Retrieved Effect Variable
-	********************/
-	ID3D10EffectVariable* GetFXVariable(UINT _fxID, std::string _techVar);
+	bool BuildFX(std::string _fxFileName, std::string _technique, ID3D10Effect*& _prFX, ID3D10EffectTechnique*& _prTech);
 
 	/***********************
 	* CreateVertexLayout: Create the Vertex Layout for an Object
 	* @author: Callan Moore
 	* @parameter: _vertexDesc: Description of the Vertices's
 	* @parameter: _elementCount: Number of elements in the Vertex Description
-	* @parameter: _techID: Technique ID to base the layout on
-	* @Parameter: _vertexLayoutID: Storage variable to hold the ID of the created Vertex Layout
+	* @parameter: _pTech: Technique to base the layout on
+	* @Parameter: _prVertexLayout: Storage variable to hold the Pointer to the created Vertex Layout
 	* @Parameter: _passNum: The pass number for the technique. Default to 0
 	* @return: bool: Successful or not
 	********************/
-	bool CreateVertexLayout(D3D10_INPUT_ELEMENT_DESC* _vertexDesc, UINT _elementCount, UINT _techID, UINT* _pVertexLayoutID, UINT _passNum = 0);
+	bool CreateVertexLayout(D3D10_INPUT_ELEMENT_DESC* _vertexDesc, UINT _elementNum, ID3D10EffectTechnique* _pTech, ID3D10InputLayout*& _prVertexLayout, UINT _passNum = 0);
 
 	/***********************
 	* CreateBuffer: Creates a buffer that holds all information for Vertex and Index Buffers for an Mesh
@@ -136,30 +151,29 @@ public:
 	* @parameter: _vertCount: Number of Vertices
 	* @parameter: _indexCount: Number of Indices
 	* @parameter: _stride: Stride size for each Vertex
-	* @parameter: _pBufferID: Storage variable to hold the ID of the created buffer
+	* @parameter: _prBuffer: Storage variable to hold the created buffer
 	* @return: bool: Successful or not
 	********************/
 	template<typename TIndices, typename TVertices>
 	bool CreateBuffer(typename TVertices* _pVertices, typename TIndices* _pIndices,
-		UINT _vertCount, UINT _indexCount, UINT _stride, UINT* _pBufferID,
+		UINT _vertCount, UINT _indexCount, UINT _stride, DX10_Buffer*& _prBuffer,
 		D3D10_USAGE _vertexUsage = D3D10_USAGE_IMMUTABLE, D3D10_USAGE _indexUsage = D3D10_USAGE_IMMUTABLE)
 	{
-		*_pBufferID = ++m_nextBufferID;
-
+		++m_nextBufferID;
 		DX10_Buffer* buff = new DX10_Buffer(m_pDX10Device);
-		if (buff->Initialise(_pVertices, _pIndices, _vertCount, _indexCount, _stride, _pBufferID, _vertexUsage, _indexUsage))
+		if (buff->Initialise(_pVertices, _pIndices, _vertCount, _indexCount, _stride, _vertexUsage, _indexUsage))
 		{
 			std::pair<UINT, DX10_Buffer*> bufferPair(m_nextBufferID, buff);
 			VALIDATE(m_buffers.insert(bufferPair).second);
-
+			 
+			_prBuffer = buff;
 			return true;
 		}
 		else
 		{
 			// Delete the failed buffer memory
-			_pBufferID = 0;
-			delete buff;
-			buff = 0;
+			_prBuffer = 0;
+			ReleasePtr(buff);
 			return false;
 		}
 	}
@@ -168,26 +182,18 @@ public:
 	* CreateTexture: Create a Texture from a file and store it on the Renderer
 	* @author: Callan Moore
 	* @parameter: _texFileName: The filename of the texture
-	* @parameter: _pTexID: Storage variable to hold the ID of the created Texture
+	* @parameter: _prTex: Storage variable to hold the Pointer to the created Texture
 	* @return: bool: Successful or not
 	********************/
-	bool CreateTexture(std::string _texFileName, UINT* _pTexID);
+	bool CreateTexture(std::string _texFileName, ID3D10ShaderResourceView*& _prTex);
 
 	/***********************
-	* RenderObject: Renders an Object to the screen
+	* RenderBuffer: Renders an Buffer to the screen
 	* @author: Callan Moore
-	* @parameter: _bufferID: The ID of the buffer stored on the Renderer
-	* @return: bool: Successful or not
+	* @parameter: _buffer: The buffer to Render
+	* @return: void
 	********************/
-	bool RenderMesh(UINT _bufferID);
-
-	/***********************
-	* RenderObject: Renders an Object to the screen
-	* @author: Callan Moore
-	* @parameter: _bufferID: The ID of the buffer stored on the Renderer
-	* @return: bool: Successful or not
-	********************/
-	bool RenderSprite(UINT _bufferID);
+	void RenderBuffer(DX10_Buffer* _buffer);
 
 	/***********************
 	* StartRender: Clears the Back buffer ready for new frame
@@ -209,6 +215,55 @@ public:
 	* @return: void
 	********************/
 	void RestoreDefaultDrawStates();
+	
+	/***********************
+	* ReadFileCounts: Reads and counts all the vertices, texture coords, normals and polygons in the mesh file
+	* @author: Callan Moore
+	* @parameter: filename: The file name of the mesh with file path
+	* @parameter: _rVertexCount: Storage variable to hold the vertex count
+	* @parameter: _rTexCount: Storage variable to hold the texture coordinate count
+	* @parameter: _rNormalCount: Storage variable to hold the normals count
+	* @parameter: _rPolygonCount: Storage variable to hold the polygon count
+	* @return: bool: Successful or not
+	********************/
+	bool ReadFileCounts(std::string  filename, int& _rVertexCount, int& _rTexCount, int& _rNormalCount, int& _rPolygonCount);
+	
+	/***********************
+	* LoadMeshObj: Load in a Mesh Object from a file
+	* @author: Callan Moore
+	* @parameter: _fileName: The file name of the mesh with file path
+	* @parameter: _prVertexBuffer: Storage variable to hold the created Vertex buffer
+	* @parameter: _prIndexBuffer: Storage variable to hold the created Index buffer
+	* @parameter: _pVertexCount: Storage variable to hold the created Vertex count
+	* @parameter: _pIndexCount: Storage variable to hold the created Index count
+	* @parameter: _scale: The scale to load the mesh with
+	* @return: bool: Successful or not
+	********************/
+	bool LoadMeshObj(std::string _fileName, TVertexNormalUV*& _prVertexBuffer, DWORD*& _prIndexBuffer, int* _pVertexCount, int* _pIndexCount, v3float _scale);
+	
+	/***********************
+	* AddLight: Add a new light to the Renderer
+	* @author: Callan Moore
+	* @parameter: _lightName: Name of the light for referencing and updating
+	* @parameter: _light: The light structure
+	* @return: bool: Successful or not
+	********************/
+	bool AddLight(std::string _lightName, Light* _light);
+	
+	/***********************
+	* RemoveLight: Remove a light from the Renderer
+	* @author: Callan Moore
+	* @parameter: _lightName: Name of the light to remove
+	* @return: void
+	********************/
+	void RemoveLight(std::string _lightName);
+
+	/***********************
+	* GetActiveLights: Retrieve the current active light in the scene
+	* @author: Callan Moore
+	* @return: Light*: The current active lights
+	********************/
+	Light* GetActiveLights();
 
 	/***********************
 	* SetPrimitiveTopology: Sets the primitive topology for a Mesh before drawing
@@ -221,10 +276,10 @@ public:
 	/***********************
 	* SetInputLayout: Set the Vertex Layout as the Input Layout on the Renderer
 	* @author: Callan Moore
-	* @parameter: _vertexLayoutID: Vertex Layout ID
+	* @parameter: _pVertexLayout: Vertex Layout to set
 	* @return: bool: Successful or not
 	********************/
-	bool SetInputLayout(UINT _vertexLayoutID);
+	bool SetInputLayout(ID3D10InputLayout* _pVertexLayout);
 
 	/***********************
 	* SetViewMatrix: Set the View Matrix for use in Renderering
@@ -241,30 +296,6 @@ public:
 	* @return: void
 	********************/
 	void SetEyePosition(D3DXVECTOR3 _eyePos) { m_eyePos = _eyePos; };
-
-	/***********************
-	* GetTechnique: Retrieve the Technique for the given ID
-	* @author: Callan Moore
-	* @parameter: _techID: ID of the Technique
-	* @return: ID3D10EffectTechnique*: DX10 Technique
-	********************/
-	ID3D10EffectTechnique* GetTechnique(UINT _techID);
-
-	/***********************
-	* SetTexture: Retrieve the Texture from the ID
-	* @author: Callan Moore
-	* @parameter: _texID: Texture ID
-	* @return: ID3D10ShaderResourceView*: The Texture
-	********************/
-	ID3D10ShaderResourceView* GetTexture(UINT _texID);
-
-	/***********************
-	* GetVertexBuffer: Retrieve the vertex buffer
-	* @author: Callan Moore
-	* @parameter: _buffID: The ID to the package buffer
-	* @return: ID3D10Buffer*: The vertex buffer linked to the ID
-	********************/
-	ID3D10Buffer* GetVertexBuffer(UINT _buffID);
 
 	/***********************
 	* CalcProjMatrix: Calculate the Projection Matrix for use in Renderering
@@ -288,6 +319,13 @@ public:
 	D3DXMATRIX* GetProjMatrix() { return &m_matProj; };
 
 	/***********************
+	* GetOrthographicMatrix: Retrieve the Orthographic Matrix for 2D rendering
+	* @author: Juran Griffith
+	* @return: D3DXMATRIX*: The Orthographic Matrix
+	********************/
+	D3DXMATRIX* GetOrthographicMatrix() { return &m_matOrtho; };
+
+	/***********************
 	* GetFullScreenState: Retrieve the state of full screen
 	* @author: Callan Moore
 	* @return: bool: True if full screen is active, false otherwise
@@ -300,17 +338,30 @@ public:
 	* @return: D3DXVECTOR3; The Eye Position
 	********************/
 	D3DXVECTOR3 GetEyePos() { return m_eyePos; };
-	
+
 	/***********************
-	* GetActiveLight: Retrieve the current active light in the scene
+	* GetLightCount: Retrieve the current amount of active lights
 	* @author: Callan Moore
-	* @return: Light*: The current active light
+	* @return: int: Light count
 	********************/
-	Light* GetActiveLight() { return &m_activeLight; };
+	int GetLightCount() { return m_lightCount; };
+
+	// TO DO CAL
+	int GetWidth() { return m_clientWidth; };
+	int GetHeight() { return m_clientHeight; };
+
+	/***********************
+	* IsFullscreen: Retrieve the current full screen state
+	* @author: Juran Griffith
+	* @return: bool: true when fullscreen is set otherwise false.
+	********************/
+	bool IsFullscreen() { return m_fullScreen; };
 
 private:
 	// Window Variables
 	HWND m_hWnd;
+	int m_windowedWidth;
+	int m_windowedHeight;
 	int m_clientWidth;
 	int m_clientHeight;
 	bool m_fullScreen;
@@ -318,6 +369,7 @@ private:
 	// Matrices for Rendering
 	D3DXMATRIX m_matView;
 	D3DXMATRIX m_matProj;
+	D3DXMATRIX m_matOrtho;
 	D3DXVECTOR3 m_eyePos;
 
 	// DX10 Variables
@@ -325,6 +377,8 @@ private:
 	IDXGISwapChain*  m_pDX10SwapChain;
 	ID3D10RenderTargetView* m_pRenderTargetView;
 	ID3D10DepthStencilView* m_pDepthStencilView;
+	ID3D10DepthStencilState* m_pDepthStencilStateNormal;
+	ID3D10DepthStencilState* m_pDepthStencilStateZDisabled;
 	ID3D10Texture2D* m_pDepthStencilBuffer;
 	D3D10_RASTERIZER_DESC m_rasterizerDesc;
 	ID3D10RasterizerState* m_pRasterizerState;
@@ -332,14 +386,10 @@ private:
 	D3DXCOLOR m_clearColor;
 
 	// Map of FX files
-	UINT m_nextEffectID;
-	std::map<std::string, UINT> m_effectIDs;
-	std::map<UINT, ID3D10Effect*> m_effectsByID;
+	std::map<std::string, ID3D10Effect*> m_fxFiles;
 
 	// Map of Techniques
-	UINT m_nextTechniqueID;
-	std::map<UINT, std::map<std::string, UINT>> m_techniqueIDs;
-	std::map<UINT, ID3D10EffectTechnique*> m_techniquesByID;
+	std::map<std::string, std::map<std::string, ID3D10EffectTechnique*>> m_techniques;
 
 	// Map of Input Layouts
 	UINT m_nextInputLayoutID;
@@ -351,13 +401,13 @@ private:
 
 	// Map of all Textures
 	UINT m_nextTextureID;
-	std::map<std::string, UINT> m_textureIDs;
-	std::map<UINT, ID3D10ShaderResourceView*> m_texturesByID;
+	std::map<std::string, ID3D10ShaderResourceView*> m_textures;
 
 	// Lighting
 	Light m_activeLight;
-
-
+	std::map<std::string, Light*> m_mapLights;
+	Light* m_pArrLights;
+	int m_lightCount;
 };
 
 #endif // __DX10_RENDERER_H__

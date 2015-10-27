@@ -7,9 +7,13 @@
 // Local Includes
 #include "LightStructures.fx"
 
+// Defines
+#define MAX_LIGHTS 5
+
 cbuffer cbPerFrame
 {
-	Light g_light;
+	Light g_light[MAX_LIGHTS];
+	int g_lightCount;
 	float3 g_eyePosW;
 
 	float4x4 g_matView;
@@ -20,10 +24,12 @@ cbuffer cbPerObject
 {
 	float4x4 g_matWorld;
 	float4x4 g_matTex;
+	float	 g_reduceAlpha;
 };
 
 // Nonnumeric values cannot be added to a cbuffer.
 Texture2D g_mapDiffuse;
+Texture2D g_mapDiffuse2;
 Texture2D g_mapSpec;
 
 bool g_specularEnabled;
@@ -45,9 +51,22 @@ struct VS_IN
 struct VS_OUT
 {
 	float4 positionH    : SV_POSITION;
-    float3 position     : POSITION;
-    float3 normal		: NORMAL;
+	float3 position     : POSITION;
+	float3 normal		: NORMAL;
     float2 texCoord     : TEXCOORD;
+};
+
+// For transparency values
+BlendState SrcAlphaBlendingAdd
+{
+	BlendEnable[0] = TRUE;
+	SrcBlend = SRC_ALPHA;
+	DestBlend = INV_SRC_ALPHA;
+	BlendOp = ADD;
+	SrcBlendAlpha = ZERO;
+	DestBlendAlpha = ZERO;
+	BlendOpAlpha = ADD;
+	RenderTargetWriteMask[0] = 0x0F;
 };
  
 VS_OUT VS_Standard(VS_IN _inputVS)
@@ -83,8 +102,36 @@ float4 PS_Standard(VS_OUT _inputPS) : SV_Target
     
 	// Compute the lit color for this pixel.
 	SurfaceInfo surface = { _inputPS.position, normal, diffuse, spec };
-	float3 litColor = ParallelLight(surface, g_light, g_eyePosW);
-    
+
+	float3 litColor = float3(0.0f, 0.0f, 0.0f);
+	for (int i = 0; i < g_lightCount; i++)
+	{
+		if (g_light[i].active == true)
+		{
+			if (g_light[i].type == 0)
+			{
+				litColor += ParallelLight(surface, g_light[i], g_eyePosW);
+			}
+			else if (g_light[i].type == 1)
+			{
+				litColor += PointLight(surface, g_light[i], g_eyePosW);
+			}
+			else if (g_light[i].type == 2)
+			{
+				litColor += SpotLight(surface, g_light[i], g_eyePosW);
+			}
+			else if (g_light[i].type == 3)
+			{
+				float glowLerp = GlowLight(surface, g_light[i]);
+
+				if (glowLerp > 0.0f)
+				{
+					litColor = lerp(litColor, g_light[i].diffuse.xyz, glowLerp);
+				}
+			}
+		}
+	}
+
 	return float4(litColor, diffuse.a);
 }
 
@@ -106,5 +153,110 @@ technique10 AnimateWaterTech
 		SetVertexShader(CompileShader(vs_4_0, VS_Standard()));
 		SetGeometryShader(NULL);
 		SetPixelShader(CompileShader(ps_4_0, PS_Standard()));
+	}
+}
+
+//--------------------------------------------------------------
+// Fade
+//--------------------------------------------------------------
+
+float4 PS_Fade(VS_OUT _inputPS) : SV_Target
+{
+	// Get materials from texture maps.
+	float4 diffuse = g_mapDiffuse.Sample(g_triLinearSam, _inputPS.texCoord);
+	float4 spec = g_mapSpec.Sample(g_triLinearSam, _inputPS.texCoord);
+
+	diffuse.a = diffuse.a - g_reduceAlpha;
+
+	// Map [0,1] --> [0,256]
+	spec.a *= 256.0f;
+
+	// Interpolating normal can make it not be of unit length so normalize it.
+	float3 normal = normalize(_inputPS.normal);
+
+	// Compute the lit color for this pixel.
+	SurfaceInfo surface = { _inputPS.position, normal, diffuse, spec };
+	float3 litColor = ParallelLight(surface, g_light[0], g_eyePosW);
+
+	return float4(litColor, diffuse.a);
+}
+
+technique10 FadeTech
+{
+	pass P0
+	{
+		// For transparency values
+		SetBlendState(SrcAlphaBlendingAdd, float4(0.0f, 0.0f, 0.0f, 0.0f), 0xFFFFFFFF);
+
+		SetVertexShader(CompileShader(vs_4_0, VS_Standard()));
+		SetGeometryShader(NULL);
+		SetPixelShader(CompileShader(ps_4_0, PS_Fade()));
+	}
+}
+
+//--------------------------------------------------------------
+// Blend 2 Textures + Fades
+//--------------------------------------------------------------
+
+float4 PS_BlendTex2(VS_OUT _inputPS) : SV_Target
+{
+	// Get materials from texture maps.
+	float4 diffuse = g_mapDiffuse.Sample(g_triLinearSam, _inputPS.texCoord);
+	float4 spec = g_mapSpec.Sample(g_triLinearSam, _inputPS.texCoord);
+
+	diffuse.a = diffuse.a - g_reduceAlpha;
+
+	// Map [0,1] --> [0,256]
+	spec.a *= 256.0f;
+
+	// Interpolating normal can make it not be of unit length so normalize it.
+	float3 normal = normalize(_inputPS.normal);
+
+	// Compute the lit color for this pixel.
+	SurfaceInfo surface = { _inputPS.position, normal, diffuse, spec };
+
+	float3 litColor = float3(0.0f, 0.0f, 0.0f);
+
+	for (int i = 0; i < g_lightCount; i++)
+	{
+		if (g_light[i].active == true)
+		{
+			if (g_light[i].type == 0)
+			{
+				litColor += ParallelLight(surface, g_light[i], g_eyePosW);
+			}
+			else if (g_light[i].type == 1)
+			{
+				litColor += PointLight(surface, g_light[i], g_eyePosW);
+			}
+			else if (g_light[i].type == 2)
+			{
+				litColor += SpotLight(surface, g_light[i], g_eyePosW);
+			}
+			else if (g_light[i].type == 3)
+			{
+				float glowLerp = GlowLight(surface, g_light[i]);
+
+				if (glowLerp > 0.0f)
+				{
+					litColor = lerp(litColor, g_light[i].diffuse.xyz, glowLerp);
+				}
+			}
+		}
+	}
+
+	return float4(litColor, diffuse.a);
+}
+
+technique10 BlendTex2Tech
+{
+	pass P0
+	{
+		// For transparency values
+		SetBlendState(SrcAlphaBlendingAdd, float4(0.0f, 0.0f, 0.0f, 0.0f), 0xFFFFFFFF);
+
+		SetVertexShader(CompileShader(vs_4_0, VS_Standard()));
+		SetGeometryShader(NULL);
+		SetPixelShader(CompileShader(ps_4_0, PS_BlendTex2()));
 	}
 }

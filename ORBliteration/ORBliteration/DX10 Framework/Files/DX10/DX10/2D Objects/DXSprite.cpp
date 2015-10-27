@@ -6,7 +6,7 @@
 //
 // (c) 2005 - 2015 Media Design School
 //
-// File Name	:	DXBitmap.cpp
+// File Name	:	DXSprite.cpp
 // Description	:	The implementation file.
 // Author(s)	:	Juran Griffith.
 // Mail			:	juran.griffith@mediadesignschool.com
@@ -17,24 +17,24 @@
 // Local Includes
 #include "DXSprite.h"
 
-DXSprite::DXSprite():
-	m_previousPosX(-1),
-	m_previousPosY(-1)
+DXSprite::DXSprite()
+	: m_pDX10_Renderer(0)
+	, m_pTex(0)
+	, m_scale(1.0f)
 {
-	m_pDX10_Renderer = 0;
-	m_texID = 0;
+	m_offsetScreenWidthPrev = 0.0f;
+	m_offsetScreenHeightPrev = 0.0f;
 }
 
 DXSprite::~DXSprite()
 {
-
 }
 
-bool DXSprite::Initialize(DX10_Renderer* _pDX10_Renderer, FXTexture* _pShader, std::string _filename, float _bitmapWidth, float _bitmapHeight, int _sliceWidth, int _sliceHeight)
+bool DXSprite::Initialise(DX10_Renderer* _pDX10_Renderer, DX10_Shader_Sprite* _pShader, std::string _filename, UINT _imageWidth, UINT _imageHeight, UINT _sliceWidth, UINT _sliceHeight)
 {
-	// Save the pointer to the device
+	// Save the pointers
 	m_pDX10_Renderer = _pDX10_Renderer;
-	m_pShader = _pShader;
+	m_pShader_Sprite = _pShader;
 
 	m_strFilename = _filename;
 
@@ -43,6 +43,7 @@ bool DXSprite::Initialize(DX10_Renderer* _pDX10_Renderer, FXTexture* _pShader, s
 
 	m_index = 0;
 	m_indexPrev = 0;
+	m_animationLooped = false;
 
 	POINT temp;
 	for (int r = 0; r < m_sliceHeight; ++r)
@@ -55,45 +56,58 @@ bool DXSprite::Initialize(DX10_Renderer* _pDX10_Renderer, FXTexture* _pShader, s
 		}
 	}
 
-	// Set the size to render the image
-	m_bitmapWidth = _bitmapWidth;
-	m_bitmapHeight = _bitmapHeight;
+	//GetPngSize();
+
+	// Save the size of the image
+	m_realImageWidth = _imageWidth;
+	m_realImageHeight = _imageHeight;
+
+	// Set the size to the same size of the actual image
+	//m_imageWidth = _imageWidth;
+	//m_imageHeight = _imageHeight;
+
+	//m_offsetImageWidth = m_imageWidth;
+	//m_offsetImageHeight = m_imageHeight;
 
 	// Save the screen size.
-	RECT rect;
-	if (GetClientRect(*m_pHWnd, &rect))
+	/*RECT rect;
+	if (GetClientRect(m_pShader_Sprite->GetHWnd(), &rect))
 	{
 		m_screenWidth = rect.right - rect.left;
 		m_screenHeight = rect.bottom - rect.top;
-	}
+	}*/
 
 	// Calculate offsets to reduce the amount of divides in the update call.
-	m_offsetScreenWidth = static_cast<float>((m_screenWidth / 2) * -1);
-	m_offsetScreenHeight = static_cast<float>(m_screenHeight / 2);
+	//m_offsetScreenWidth = (static_cast<float>(m_screenWidth) / 2.0f) * -1.0f;
+	//m_offsetScreenHeight = (static_cast<float>(m_screenHeight) / 2.0f);
 
-	m_offsetBitmapWidth = static_cast<float>(m_bitmapWidth / m_sliceWidth);
-	m_offsetBitmapHeight = static_cast<float>(m_bitmapHeight / m_sliceHeight);
+	m_offsetImageWidth = static_cast<float>(_imageWidth) / static_cast<float>(m_sliceWidth);
+	m_offsetImageHeight = static_cast<float>(_imageHeight) / static_cast<float>(m_sliceHeight);
 
-	m_offsetU = static_cast<float>(1.0f / m_sliceWidth);
-	m_offsetV = static_cast<float>(1.0f / m_sliceHeight);
+	m_imageWidth = (UINT)m_offsetImageWidth;
+	m_imageHeight = (UINT)m_offsetImageHeight;
+
+	m_offsetU = 1.0f / static_cast<float>(m_sliceWidth);
+	m_offsetV = 1.0f / static_cast<float>(m_sliceHeight);
 
 	// Initialize the vertex and index buffer that hold the geometry for the triangle.
-	if (!InitializeBuffers())
+	if (!InitialiseBuffers())
 		return false;
 
-	VALIDATE(m_pDX10_Renderer->CreateTexture(m_strFilename, &m_texID));
+	VALIDATE(m_pDX10_Renderer->CreateTexture(m_strFilename, m_pTex));
+
+	m_previousPosition = v2float(-1.0f, -1.0f);
+	m_position = v2float(0.0f, 0.0f);
 
 	return true;
 }
 
-void DXSprite::Process(float _positionX, float _positionY)
+void DXSprite::SetPosition(float _x, float _y)
 {
-	// Re-build the dynamic vertex buffer for rendering to possibly a different location on the screen.
-	if (!UpdateBuffers(_positionX, _positionY))
-		return;
-
-	// Put the vertex and index buffers on the graphics pipeline to prepare them for drawing.
-	Render();
+	// Re-build the dynamic vertex buffer for rendering to a different location on the screen.
+	m_position.x = _x;
+	m_position.y = _y;
+	//UpdateBuffers();
 }
 
 int DXSprite::GetIndexCount()
@@ -111,9 +125,34 @@ int DXSprite::GetSliceHeight()
 	return m_sliceHeight;
 }
 
-void DXSprite::SetImageIndex(int _index)
+float DXSprite::GetWidth()
 {
-	if (!m_imageIndexList.empty() && static_cast<UINT>(_index) < m_imageIndexList.size())
+	return m_offsetImageWidth;
+}
+
+float DXSprite::GetHeight()
+{
+	return m_offsetImageHeight;
+}
+
+float DXSprite::GetImageWidth()
+{
+	return static_cast<float>(m_realImageWidth);
+}
+
+float DXSprite::GetImageHeight()
+{
+	return static_cast<float>(m_realImageHeight);
+}
+
+v2float DXSprite::GetPosition()
+{
+	return m_position;
+}
+
+void DXSprite::SetImageIndex(UINT _index)
+{
+	if (!m_imageIndexList.empty() && _index < m_imageIndexList.size())
 	{
 		m_index = _index;
 	}
@@ -121,14 +160,51 @@ void DXSprite::SetImageIndex(int _index)
 
 void DXSprite::SetSize(float _width, float _height)
 {
-	m_bitmapWidth = _width;
-	m_bitmapHeight = _height;
+	m_imageWidth = (UINT)_width;
+	m_imageHeight = (UINT)_height;
 
-	m_offsetBitmapWidth = static_cast<float>(_width / m_sliceWidth);
-	m_offsetBitmapHeight = static_cast<float>(_height / m_sliceHeight);
+	m_offsetImageWidth = _width / static_cast<float>(m_sliceWidth);
+	m_offsetImageHeight = _height / static_cast<float>(m_sliceHeight);
 }
 
-bool DXSprite::InitializeBuffers()
+void DXSprite::SetLooped(bool _looped)
+{
+	m_animationLooped = _looped;
+}
+
+void DXSprite::SetScale(float _scale)
+{
+	m_scale = _scale;
+	SetSize(m_imageWidth * _scale, m_imageHeight * _scale);
+}
+
+void DXSprite::IncrementIndex()
+{
+	if (!m_imageIndexList.empty() && (m_index + 1) < m_imageIndexList.size())
+	{
+		m_index++;
+	}
+	else if (m_animationLooped)
+	{
+		m_index = 0;
+	}
+}
+
+bool DXSprite::IsAtLastFrame()
+{
+	return m_index == m_imageIndexList.size() - 1;
+}
+
+void DXSprite::Render()
+{
+	UpdateBuffers();
+	// Set the type of primitive
+	m_pDX10_Renderer->SetPrimitiveTopology(D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+	m_pShader_Sprite->Render(m_pBuff, m_pTex);
+}
+
+bool DXSprite::InitialiseBuffers()
 {
 	TVertexUV* pVertices;
 	unsigned long* pIndices;
@@ -162,7 +238,7 @@ bool DXSprite::InitializeBuffers()
 		pIndices[i] = i;
 	}
 
-	VALIDATE(m_pDX10_Renderer->CreateBuffer(pVertices, pIndices, m_vertexCount, m_indexCount, (UINT)sizeof(TVertexUV), &m_buffID, D3D10_USAGE_DYNAMIC, D3D10_USAGE_DEFAULT));
+	VALIDATE(m_pDX10_Renderer->CreateBuffer(pVertices, pIndices, m_vertexCount, m_indexCount, (UINT)sizeof(TVertexUV), m_pBuff, D3D10_USAGE_DYNAMIC, D3D10_USAGE_DEFAULT));
 
 	// Clean up
 	delete[] pVertices;
@@ -174,33 +250,41 @@ bool DXSprite::InitializeBuffers()
 	return true;
 }
 
-bool DXSprite::UpdateBuffers(float _positionX, float _positionY)
+bool DXSprite::UpdateBuffers()
 {
+	// If the position has not changed then don't update the vertex buffer
+	if ((m_position == m_previousPosition) && (m_indexPrev == m_index) && (m_offsetScreenWidthPrev == m_offsetScreenWidth) && (m_offsetScreenHeightPrev == m_offsetScreenHeight))
+		return true;
+
+	// Calculate offsets
+	m_offsetScreenWidth = (static_cast<float>(m_pDX10_Renderer->GetWidth()) / 2.0f) * -1.0f;
+	m_offsetScreenHeight = (static_cast<float>(m_pDX10_Renderer->GetHeight()) / 2.0f);
+
+	m_offsetScreenWidthPrev = m_offsetScreenWidth;
+	m_offsetScreenHeightPrev = m_offsetScreenHeight;
+
 	float left, right, top, bottom;
 	TVertexUV* vertices;
 	void* verticesPtr;
 
-	// If the position has not changed then don't update the vertex buffer
-	if ((_positionX == m_previousPosX) && (_positionY == m_previousPosY) && (m_indexPrev == m_index))
-		return true;
-
 	// Update the position
-	m_previousPosX = _positionX;
-	m_previousPosY = _positionY;
+	m_previousPosition = m_position;
 
 	m_indexPrev = m_index;
 
-	// Calculate the screen coordinates of the left side of the bitmap.
-	left = m_offsetScreenWidth + static_cast<float>(_positionX);
+	// Calculate the screen coordinates of the left side of the image.
+	left = m_offsetScreenWidth + m_position.x;
 
-	// Calculate the screen coordinates of the right side of the bitmap.
-	right = left + m_offsetBitmapWidth;
+	// Calculate the screen coordinates of the right side of the image.
+	//right = left + m_offsetImageWidth;
+	right = left + m_imageWidth;
 
-	// Calculate the screen coordinates of the top of the bitmap.
-	top = m_offsetScreenHeight - static_cast<float>(_positionY);
+	// Calculate the screen coordinates of the top of the image.
+	top = m_offsetScreenHeight - m_position.y;
 
-	// Calculate the screen coordinates of the bottom of the bitmap.
-	bottom = top - m_offsetBitmapHeight;
+	// Calculate the screen coordinates of the bottom of the image.
+	//bottom = top - m_offsetImageHeight;
+	bottom = top - m_imageHeight;
 
 	// Create the vertex array.
 	vertices = new TVertexUV[m_vertexCount];
@@ -235,7 +319,7 @@ bool DXSprite::UpdateBuffers(float _positionX, float _positionY)
 	verticesPtr = 0;
 
 	// Lock the vertex buffer.
-	ID3D10Buffer* pVertexBuff = m_pDX10_Renderer->GetVertexBuffer(m_buffID);
+	ID3D10Buffer* pVertexBuff = m_pBuff->GetVertexBuffer();
 	VALIDATEHR(pVertexBuff->Map(D3D10_MAP_WRITE_DISCARD, 0, (void**)&verticesPtr));
 
 	// Copy the data into the vertex buffer.
@@ -251,10 +335,33 @@ bool DXSprite::UpdateBuffers(float _positionX, float _positionY)
 	return true;
 }
 
-void DXSprite::Render()
+bool DXSprite::GetPngSize()
 {
-	// Set the type of primitive
-	m_pDX10_Renderer->SetPrimitiveTopology(D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	std::string filename = TEXTUREFILEPATH;
+	filename.append(m_strFilename);
+	std::ifstream file(filename, std::ios_base::binary | std::ios_base::in);
+	//std::ifstream file(filename);
 
-	m_pShader->Render(m_buffID, m_texID);
+	if (!file.is_open() || !file) {
+		file.close();
+		return false;
+	}
+
+	// Skip chucks
+	file.seekg(16, std::ios_base::cur);
+
+	UINT width, height;
+
+	file.read((char*)&width, 4);
+	file.read((char*)&height, 4);
+
+	//width = ntohl(width); // Testing
+	//height = ntohl(height);
+
+	//m_imageWidth = static_cast<float>(width);
+	//m_imageHeight = static_cast<float>(height);
+
+	file.close();
+
+	return true;
 }
